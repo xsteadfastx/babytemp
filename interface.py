@@ -1,12 +1,19 @@
+import time
+
 from datetime import datetime
 
-from bokeh.client import push_session
+from functools import partial
+
+from threading import Thread
+
 from bokeh.layouts import gridplot
 from bokeh.plotting import curdoc, figure
 
 from config import MQTT_SERVER
 
 import paho.mqtt.client as mqtt
+
+from tornado import gen
 
 
 p1 = figure(
@@ -25,20 +32,20 @@ p2 = figure(
     x_axis_type='datetime'
 )
 
+# axes
 x = []
 y = []
 
+# sensor values
 temp = None
 humi = None
+
 temp_graph = p1.line(x, y, color="navy", alpha=0.5)
 humi_graph = p2.line(x, y, color="red", alpha=0.5)
 
 # This is important! Save curdoc() to make sure all threads
 # see then same document.
 doc = curdoc()
-
-# open a session to keep our local document in sync with server
-session = push_session(doc)
 
 
 def on_connect(client, userdata, flags, rc):
@@ -61,9 +68,15 @@ mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_message
 mqtt_client.connect(MQTT_SERVER, 1883, 60)
 
-mqtt_client.loop_start()
+
+def mqtt_loop():
+    while True:
+        time.sleep(0.1)
+        mqtt_client.loop()
+        doc.add_next_tick_callback(partial(update))
 
 
+@gen.coroutine
 def update():
     if not temp and not humi:
         return
@@ -98,7 +111,7 @@ def update():
 
 p = gridplot([p1], [p2], sizing_mode='stretch_both')
 
-doc.add_periodic_callback(update, 50)
+doc.add_root(p)
 
-session.show(p)  # open the document in a browser
-session.loop_until_closed()  # run forever
+thread = Thread(target=mqtt_loop)
+thread.start()
