@@ -7,6 +7,7 @@ from functools import partial
 from threading import Thread
 
 from bokeh.layouts import gridplot
+from bokeh.models import ColumnDataSource
 from bokeh.plotting import curdoc, figure
 
 from config import MQTT_SERVER
@@ -32,16 +33,17 @@ p2 = figure(
     x_axis_type='datetime'
 )
 
-# axes
-x = []
-y = []
+# data store
+temp_source = ColumnDataSource(data=dict(x=[], y=[]))
+humi_source = ColumnDataSource(data=dict(x=[], y=[]))
 
 # sensor values
 temp = None
 humi = None
 
-temp_graph = p1.line(x, y, color="navy", alpha=0.5)
-humi_graph = p2.line(x, y, color="red", alpha=0.5)
+# define plots
+temp_graph = p1.line(x='x', y='y', source=temp_source, color="navy", alpha=0.5)
+humi_graph = p2.line(x='x', y='y', source=humi_source, color="red", alpha=0.5)
 
 # This is important! Save curdoc() to make sure all threads
 # see then same document.
@@ -78,35 +80,24 @@ def mqtt_loop():
 
 @gen.coroutine
 def update():
-    if not temp and not humi:
+    if not temp or not humi:
         return
+
     now = datetime.now()
 
-    if now.minute == 0 and now.hour == 0:
-        temp_new_y = []
-        temp_new_x = []
+    temp_source.stream(
+        {
+            'x': [now],
+            'y': [temp]
+        }
+    )
 
-        humi_new_y = []
-        humi_new_x = []
-
-    else:
-        temp_new_y = list(temp_graph.data_source.data['y'])
-        temp_new_y.append(temp)
-
-        temp_new_x = list(temp_graph.data_source.data['x'])
-        temp_new_x.append(now)
-
-        humi_new_y = list(humi_graph.data_source.data['y'])
-        humi_new_y.append(humi)
-
-        humi_new_x = list(humi_graph.data_source.data['x'])
-        humi_new_x.append(now)
-
-    temp_graph.data_source.data['y'] = temp_new_y
-    temp_graph.data_source.data['x'] = temp_new_x
-
-    humi_graph.data_source.data['y'] = humi_new_y
-    humi_graph.data_source.data['x'] = humi_new_x
+    humi_source.stream(
+        {
+            'x': [now],
+            'y': [humi]
+        }
+    )
 
 
 p = gridplot([p1], [p2], sizing_mode='stretch_both')
